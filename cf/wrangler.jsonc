@@ -1,0 +1,8 @@
+{
+  "name": "policy-lab",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./public", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "policy-lab", "database_id": "a5e9f048-a7b9-4e9f-b1e9-83fe71ecf90d" }],
+  "vars": { "API_USER": "admin" }
+}

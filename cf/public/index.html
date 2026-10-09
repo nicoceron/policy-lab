@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laboratorio de Pólizas</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 0 auto; padding: 16px; color: #1a1a1a; background: #fff; }
+  header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #c8102e; margin-bottom: 16px; }
+  h1 { font-size: 1.3rem; color: #c8102e; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: #f6f6f6; }
+  button, .btn { background: #c8102e; color: #fff; border: 0; padding: 8px 14px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: .9rem; }
+  button.ghost { background: #eee; color: #333; }
+  .bar { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .count { font-weight: 600; font-size: 1.1rem; margin-right: auto; }
+  form { display: grid; gap: 10px; max-width: 420px; }
+  label { display: grid; gap: 4px; font-size: .9rem; }
+  input, select { padding: 8px; font-size: 1rem; }
+  .error { color: #c8102e; font-size: .85rem; }
+  dl { display: grid; grid-template-columns: 180px 1fr; gap: 8px; } dt { font-weight: 600; }
+  .wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<header><h1>Laboratorio de Pólizas</h1><button id="logout" class="ghost" hidden>Cerrar sesión</button></header>
+<main id="app"></main>
+<script>
+const LABELS = { AUTOMOVILES: "Automóviles", HOGAR: "Hogar", VIDA: "Vida", ACTIVA: "Activa", CANCELADA: "Cancelada" };
+const cop = (n) => "$" + Number(n).toLocaleString("es-CO");
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const app = document.getElementById("app");
+const logoutBtn = document.getElementById("logout");
+const token = () => localStorage.getItem("token");
+const go = (path) => { history.pushState({}, "", path); render(); };
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", authorization: "Bearer " + token(), ...(opts.headers || {}) } });
+  if (res.status === 401 && path !== "/api/auth/login") { localStorage.removeItem("token"); go("/login"); throw new Error("401"); }
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+logoutBtn.onclick = () => { localStorage.removeItem("token"); go("/login"); };
+window.onpopstate = render;
+
+function render() {
+  const path = location.pathname;
+  if (!token() && path !== "/login") return go("/login");
+  if (token() && (path === "/login" || path === "/")) return go("/polizas");
+  logoutBtn.hidden = path === "/login";
+  if (path === "/login") return renderLogin();
+  if (path === "/poliza") return new URLSearchParams(location.search).get("id") ? renderDetail() : renderForm();
+  return renderList();
+}
+
+function renderLogin() {
+  app.innerHTML = `<h2>Acceso</h2><form id="f">
+    <label>Usuario<input name="username" required autocomplete="username"></label>
+    <label>Contraseña<input name="password" type="password" required autocomplete="current-password"></label>
+    <span class="error" id="e"></span><button>Ingresar</button></form>`;
+  document.getElementById("f").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const { status, body } = await api("/api/auth/login", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(ev.target))) });
+    if (status !== 200) return (document.getElementById("e").textContent = "Usuario o contraseña incorrectos");
+    localStorage.setItem("token", body.token); go("/polizas");
+  };
+}
+
+async function renderList() {
+  const status = new URLSearchParams(location.search).get("status") || "";
+  app.innerHTML = `<div class="bar"><span class="count" id="count">Cargando…</span>
+    <label style="display:flex;gap:6px;align-items:center">Estado
+      <select id="status"><option value="">Todas</option><option value="ACTIVA">Activa</option><option value="CANCELADA">Cancelada</option></select></label>
+    <a class="btn" href="/poliza" id="new">Crear póliza</a></div>
+    <div class="wrap"><table><thead><tr><th>ID</th><th>Cliente</th><th>Ramo</th><th>Prima mensual</th><th>Inicio</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody id="rows"></tbody></table></div>`;
+  const sel = document.getElementById("status");
+  sel.value = status;
+  sel.onchange = () => go("/polizas" + (sel.value ? "?status=" + sel.value : ""));
+  document.getElementById("new").onclick = (e) => { e.preventDefault(); go("/poliza"); };
+  const { body } = await api("/api/policies" + (status ? "?status=" + status : ""));
+  document.getElementById("count").textContent = `${body.total} pólizas`;
+  const rows = document.getElementById("rows");
+  rows.innerHTML = body.items.map((p) => `<tr data-id="${esc(p.id)}"><td>${esc(p.id)}</td><td>${esc(p.clientName)}</td><td>${LABELS[p.branch]}</td><td>${cop(p.monthlyPremiumCop)}</td><td>${p.startDate}</td><td>${p.endDate}</td><td>${LABELS[p.status]}</td></tr>`).join("");
+  rows.onclick = (e) => { const tr = e.target.closest("tr"); if (tr) go("/poliza?id=" + encodeURIComponent(tr.dataset.id)); };
+}
+
+function renderForm() {
+  const field = (name, label, input) => `<label>${label}${input}<span class="error" data-err="${name}"></span></label>`;
+  app.innerHTML = `<h2>Nueva póliza</h2><form id="f" novalidate>
+    ${field("clientName", "Nombre del cliente", `<input name="clientName">`)}
+    ${field("branch", "Ramo", `<select name="branch"><option value="AUTOMOVILES">Automóviles</option><option value="HOGAR">Hogar</option><option value="VIDA">Vida</option></select>`)}
+    ${field("monthlyPremiumCop", "Prima mensual (COP)", `<input name="monthlyPremiumCop" type="number" min="1" step="1">`)}
+    ${field("startDate", "Fecha de inicio", `<input name="startDate" type="date">`)}
+    ${field("endDate", "Fecha de vencimiento", `<input name="endDate" type="date">`)}
+    ${field("status", "Estado", `<select name="status"><option value="ACTIVA">Activa</option><option value="CANCELADA">Cancelada</option></select>`)}
+    <span class="error" id="e"></span>
+    <div class="bar"><button>Guardar</button><a href="/polizas" id="back">Volver</a></div></form>`;
+  document.getElementById("back").onclick = (e) => { e.preventDefault(); go("/polizas"); };
+  document.getElementById("f").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const d = Object.fromEntries(new FormData(ev.target));
+    const data = { ...d, clientName: d.clientName.trim(), monthlyPremiumCop: Number(d.monthlyPremiumCop) };
+    const errs = {};
+    if (!data.clientName) errs.clientName = "Obligatorio";
+    if (!Number.isInteger(data.monthlyPremiumCop) || data.monthlyPremiumCop <= 0) errs.monthlyPremiumCop = "Debe ser un entero mayor a cero";
+    if (!data.startDate) errs.startDate = "Obligatorio";
+    if (!data.endDate) errs.endDate = "Obligatorio";
+    else if (data.startDate && data.endDate <= data.startDate) errs.endDate = "Debe ser posterior a la fecha de inicio";
+    const show = (fields) => document.querySelectorAll("[data-err]").forEach((s) => (s.textContent = fields[s.dataset.err] || ""));
+    show(errs);
+    if (Object.keys(errs).length) return;
+    const { status, body } = await api("/api/policies", { method: "POST", body: JSON.stringify(data) });
+    if (status === 201) return go("/polizas");
+    show(body.fields || {});
+    document.getElementById("e").textContent = body.error || "Error al guardar";
+  };
+}
+
+async function renderDetail() {
+  const id = new URLSearchParams(location.search).get("id");
+  app.innerHTML = "Cargando…";
+  const { status, body: p } = await api("/api/policies/" + encodeURIComponent(id));
+  const back = `<p><a href="/polizas" id="back">Volver</a></p>`;
+  app.innerHTML = status === 404 ? `<p>No se encontró la póliza ${esc(id)}.</p>${back}` : `<h2>Póliza ${esc(p.id)}</h2><dl>
+    <dt>ID</dt><dd>${esc(p.id)}</dd><dt>Cliente</dt><dd>${esc(p.clientName)}</dd><dt>Ramo</dt><dd>${LABELS[p.branch]}</dd>
+    <dt>Prima mensual</dt><dd>${cop(p.monthlyPremiumCop)}</dd><dt>Inicio</dt><dd>${p.startDate}</dd><dt>Vencimiento</dt><dd>${p.endDate}</dd>
+    <dt>Estado</dt><dd>${LABELS[p.status]}</dd><dt>Creada</dt><dd>${new Date(p.createdAt).toLocaleString("es-CO")}</dd></dl>${back}`;
+  document.getElementById("back").onclick = (e) => { e.preventDefault(); go("/polizas"); };
+}
+
+render();
+</script>
+</body>
+</html>

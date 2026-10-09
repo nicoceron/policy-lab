@@ -142,19 +142,23 @@ async fn list_policies(
                  ORDER BY created_at DESC, id DESC"
             );
             let mut stmt = conn.prepare(&sql).map_err(db_error)?;
-            stmt.query_map(rusqlite::params![status], row_to_policy)
+            let rows = stmt
+                .query_map(rusqlite::params![status], row_to_policy)
                 .map_err(db_error)?
                 .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(db_error)?
+                .map_err(db_error)?;
+            rows
         }
         None => {
             let sql =
                 format!("SELECT {SELECT_COLUMNS} FROM policies ORDER BY created_at DESC, id DESC");
             let mut stmt = conn.prepare(&sql).map_err(db_error)?;
-            stmt.query_map([], row_to_policy)
+            let rows = stmt
+                .query_map([], row_to_policy)
                 .map_err(db_error)?
                 .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(db_error)?
+                .map_err(db_error)?;
+            rows
         }
     };
 
